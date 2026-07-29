@@ -1,0 +1,32 @@
+<!--
+  FIRMA CORPORATIVA — ACCES GROUP
+  ================================
+  El agente NO genera la firma; la añade tal cual al final de cada correo.
+  Reemplaza los campos {{...}} con tus datos reales y pega tu firma establecida.
+
+  Cómo se usa en n8n:
+  - Opción A (recomendada): guarda esta firma en la pestaña `Config` del Google Sheet,
+    clave `firma_html`, y el workflow la lee de ahí (un solo lugar para mantenerla).
+  - Opción B: pégala directamente en el nodo "Set: Config firma" del workflow 01/02/03.
+
+  IMPORTANTE: si ya tienes una firma HTML establecida en Outlook, cópiala aquí tal cual
+  (con tu logo, colores y enlaces). Este archivo es solo un molde de arranque.
+-->
+<table cellpadding="0" cellspacing="0" style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#333;">
+  <tr>
+    <td style="padding-top:12px;border-top:2px solid #0a3d62;">
+      <strong style="color:#0a3d62;font-size:14px;">{{remitente_nombre}}</strong><br>
+      <span style="color:#555;">{{remitente_cargo}} — ACCES GROUP</span><br>
+      <span style="color:#555;">Ciberseguridad · GRC · Nube · Continuidad · Servicios administrados</span><br>
+      <a href="mailto:{{remitente_correo}}" style="color:#0a3d62;text-decoration:none;">{{remitente_correo}}</a>
+      &nbsp;|&nbsp; <a href="tel:{{remitente_telefono}}" style="color:#0a3d62;text-decoration:none;">{{remitente_telefono}}</a><br>
+      <a href="https://www.accesgroup.com" style="color:#0a3d62;text-decoration:none;">www.accesgroup.com</a>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding-top:8px;font-size:10px;color:#999;line-height:1.4;">
+      Este mensaje puede contener información confidencial. Si no eres el destinatario,
+      por favor notifícalo y elimínalo.
+    </td>
+  </tr>
+</table>

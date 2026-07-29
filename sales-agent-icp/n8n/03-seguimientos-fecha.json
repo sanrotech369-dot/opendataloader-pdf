@@ -1,0 +1,134 @@
+{
+  "name": "ICP · 03 Seguimientos con fecha",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ICP · Seguimientos con fecha\nCada mañana (9:00 L-V) busca leads cuya Fecha_Siguiente_Paso = hoy y crea un BORRADOR de seguimiento CON VALOR (no 'solo dando seguimiento').\n\nWhatsApp = fase 2 (requiere Evolution API). Aquí solo correo.\nCredenciales: Google Sheets OAuth, Outlook OAuth, Header Auth (x-api-key Anthropic).\nReemplaza REEMPLAZA_SHEET_ID.",
+        "height": 280,
+        "width": 420
+      },
+      "id": "note1",
+      "name": "Guía",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-160, -40]
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [ { "field": "cronExpression", "expression": "0 9 * * 1-5" } ] }
+      },
+      "id": "trigger",
+      "name": "Cada día 9:00 L-V",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [320, 220]
+    },
+    {
+      "parameters": {
+        "documentId": { "__rl": true, "value": "REEMPLAZA_SHEET_ID", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Leads", "mode": "name" },
+        "options": {}
+      },
+      "id": "readall",
+      "name": "Leer todos los leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [540, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deja pasar solo leads con seguimiento vencido HOY y en estado seguible; arma el prompt\nconst hoy = $now.toFormat('yyyy-LL-dd');\nconst seguibles = ['borrador_creado','respondio','en_pipeline','nutrir','agendado'];\nconst out = [];\nfor (const it of $input.all()) {\n  const l = it.json;\n  if (!l.Correo || !String(l.Correo).includes('@')) continue;\n  if (String(l.Fecha_Siguiente_Paso).slice(0,10) !== hoy) continue;\n  if (!seguibles.includes(l.Estado)) continue;\n  const system = [\n'<identidad>Agente de Seguimiento Comercial B2B de ACCES GROUP. Venta consultiva, sin presion, sin culpa, sin inventar datos.</identidad>',\n'<tarea>Redacta un correo de SEGUIMIENTO con valor real. PROHIBIDO: \"solo dando seguimiento\", \"ya revisaste?\", \"quedo atento\" como unico contenido. Cada toque debe aportar 1 de: valor, evidencia, claridad, pregunta util o coordinacion.</tarea>',\n'<reglas>Espanol profesional, max ~110 palabras, 1 CTA, sin presion. HTML simple sin firma. Propone nueva fecha_siguiente_paso (~4-6 dias habiles) o cierre de ciclo si ya hubo varios toques sin respuesta.</reglas>',\n'<salida>SOLO este JSON sin ``` : {\"asunto\":\"\",\"cuerpo_html\":\"\",\"fecha_siguiente_paso\":\"YYYY-MM-DD\",\"razon\":\"\"}</salida>'\n  ].join('\\n');\n  const user = `Fecha de hoy: ${hoy}\\nLead: ${l.Empresa} — ${l.Contacto} (${l.Cargo})\\nEtapa: ${l.Etapa_Pipeline} | Estado: ${l.Estado} | Toques: ${l.Num_Toques}\\nUltimo asunto: ${l.Asunto}\\nInvestigacion sector: ${l.Investigacion_Sector || ''}\\nNotas: ${l.Notas || ''}\\n\\nRedacta el seguimiento con valor. Devuelve solo el JSON.`;\n  out.push({ json: { ...l, system, user, hoy } });\n}\nreturn out;"
+      },
+      "id": "filter",
+      "name": "Filtrar vencidos hoy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 1200, system: $json.system, messages: [ { role: 'user', content: $json.user } ] }) }}",
+        "options": {}
+      },
+      "id": "claude",
+      "name": "Claude: Redactar seguimiento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [980, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "const FIRMA = '<br><br><table cellpadding=\"0\" cellspacing=\"0\" style=\"font-family:Arial,sans-serif;font-size:13px;color:#333\"><tr><td style=\"padding-top:12px;border-top:2px solid #0a3d62\"><strong style=\"color:#0a3d62\">Nombre Apellido</strong><br><span style=\"color:#555\">Ejecutivo Comercial — ACCES GROUP</span><br><a href=\"mailto:correo@accesgroup.com\" style=\"color:#0a3d62\">correo@accesgroup.com</a></td></tr></table>';\nconst resp = $json;\nlet text = '';\ntry { text = resp.content[0].text; } catch(e) { text = resp.body ? resp.body.content[0].text : '{}'; }\ntext = text.replace(/^```json/i,'').replace(/```$/,'').trim();\nconst data = JSON.parse(text);\nconst lead = $('Filtrar vencidos hoy').item.json;\ndata.cuerpo_final = (data.cuerpo_html || '') + FIRMA;\nreturn [{ json: { ...lead, ...data } }];"
+      },
+      "id": "parse",
+      "name": "Parsear seguimiento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 220]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "={{ $json.asunto }}",
+        "bodyContent": "={{ $json.cuerpo_final }}",
+        "additionalFields": {
+          "bodyContentType": "html",
+          "toRecipients": "={{ $json.Correo }}"
+        }
+      },
+      "id": "draft",
+      "name": "Outlook: borrador seguimiento",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [1420, 220]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": { "__rl": true, "value": "REEMPLAZA_SHEET_ID", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Leads", "mode": "name" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": ["ID_Lead"],
+          "value": {
+            "ID_Lead": "={{ $json.ID_Lead }}",
+            "Ultimo_Contacto": "={{ $json.hoy }}",
+            "Fecha_Siguiente_Paso": "={{ $json.fecha_siguiente_paso }}",
+            "Asunto": "={{ $json.asunto }}",
+            "Num_Toques": "={{ (Number($json.Num_Toques)||0) + 1 }}",
+            "Notas": "={{ $json.razon }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "upd",
+      "name": "Actualizar seguimiento",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1640, 220]
+    }
+  ],
+  "connections": {
+    "Cada día 9:00 L-V": { "main": [[{ "node": "Leer todos los leads", "type": "main", "index": 0 }]] },
+    "Leer todos los leads": { "main": [[{ "node": "Filtrar vencidos hoy", "type": "main", "index": 0 }]] },
+    "Filtrar vencidos hoy": { "main": [[{ "node": "Claude: Redactar seguimiento", "type": "main", "index": 0 }]] },
+    "Claude: Redactar seguimiento": { "main": [[{ "node": "Parsear seguimiento", "type": "main", "index": 0 }]] },
+    "Parsear seguimiento": { "main": [[{ "node": "Outlook: borrador seguimiento", "type": "main", "index": 0 }]] },
+    "Outlook: borrador seguimiento": { "main": [[{ "node": "Actualizar seguimiento", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

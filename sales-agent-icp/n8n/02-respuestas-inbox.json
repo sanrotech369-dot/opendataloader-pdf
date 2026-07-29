@@ -1,0 +1,233 @@
+{
+  "name": "ICP · 02 Respuestas + Agenda",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ICP · Respuestas + Agenda\nCada 10 min revisa Outlook, detecta respuestas de leads conocidos, clasifica la intención con Claude, agenda reunión en Google Calendar (si aplica) y crea un BORRADOR de contestación.\n\nCredenciales: Outlook OAuth, Google Sheets OAuth, Google Calendar OAuth, Header Auth (x-api-key Anthropic).\nReemplaza REEMPLAZA_SHEET_ID. Ajusta calendar id / zona horaria.",
+        "height": 300,
+        "width": 420
+      },
+      "id": "note1",
+      "name": "Guía",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-160, -60]
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [ { "field": "cronExpression", "expression": "*/10 8-19 * * 1-5" } ] }
+      },
+      "id": "trigger",
+      "name": "Cada 10 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [320, 220]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "limit": 15,
+        "filtersUI": { "values": { "readStatus": "unread" } },
+        "options": {}
+      },
+      "id": "getmsgs",
+      "name": "Outlook: no leídos",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [540, 220]
+    },
+    {
+      "parameters": {
+        "documentId": { "__rl": true, "value": "REEMPLAZA_SHEET_ID", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Leads", "mode": "name" },
+        "filtersUI": {
+          "values": [
+            { "lookupColumn": "Correo", "lookupValue": "={{ $json.from.emailAddress.address }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "findlead",
+      "name": "Buscar lead por correo",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [760, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Une el lead (fila de Sheets) con el mensaje recibido y arma el prompt de clasificacion\nconst lead = $json;\nconst msg = $('Outlook: no leídos').item.json;\nif (!lead || !lead.ID_Lead) { return []; }\nconst hoy = $now.toFormat('yyyy-LL-dd');\nconst texto = (msg.body && msg.body.content) ? msg.body.content : (msg.bodyPreview || '');\nconst system = [\n'<identidad>Agente de Seguimiento Comercial B2B de ACCES GROUP. Manejas la respuesta de un prospecto. Venta consultiva, sin presion, sin precio prematuro, sin inventar datos.</identidad>',\n'<tarea>1) Clasifica la intencion. 2) Actualiza score/etapa por evidencia. 3) Redacta contestacion (HTML simple, sin firma). 4) Si quiere reunirse, propone 2 franjas en horario laboral.</tarea>',\n'<intenciones>interesado_agenda | pregunta | objecion | no_interesado | fuera_de_oficina | otro</intenciones>',\n'<reglas>Espanol profesional, max ~120 palabras, 1 CTA. interesado_agenda: confirma y propone 2 fechas-hora ISO. objecion: escuchar-reconocer-pregunta de diagnostico, NO descuentes, NO presiones. no_interesado: agradece y cierra sin presion. fuera_de_oficina: no redactes, reprograma. Mueve etapa SOLO por evidencia.</reglas>',\n'<salida>Responde SOLO este JSON sin ``` : {\"intencion\":\"\",\"nuevo_score\":0,\"nueva_etapa\":\"\",\"nuevo_estado\":\"respondio|agendado|en_pipeline|nutrir|descartado\",\"decision_agenda\":false,\"propuesta_reunion\":{\"titulo\":\"\",\"duracion_min\":30,\"opciones\":[]},\"asunto_respuesta\":\"\",\"cuerpo_html\":\"\",\"fecha_siguiente_paso\":\"YYYY-MM-DD\",\"razon\":\"\"}</salida>'\n].join('\\n');\nconst user = `Fecha de hoy: ${hoy}\\nLead: ${lead.Empresa} — ${lead.Contacto} (${lead.Cargo})\\nEtapa actual: ${lead.Etapa_Pipeline} | Score: ${lead.Score_ICP}\\nAsunto enviado: ${lead.Asunto}\\n\\nRespuesta del prospecto:\\n\"\"\"\\n${texto}\\n\"\"\"\\n\\nClasifica y redacta. Devuelve solo el JSON.`;\nreturn [{ json: { ...lead, msg_id: msg.id, conversationId: msg.conversationId, system, user, hoy } }];"
+      },
+      "id": "prep",
+      "name": "Prep clasificación",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [980, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 1500, system: $json.system, messages: [ { role: 'user', content: $json.user } ] }) }}",
+        "options": {}
+      },
+      "id": "claude",
+      "name": "Claude: Clasificar respuesta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "const FIRMA = '<br><br><table cellpadding=\"0\" cellspacing=\"0\" style=\"font-family:Arial,sans-serif;font-size:13px;color:#333\"><tr><td style=\"padding-top:12px;border-top:2px solid #0a3d62\"><strong style=\"color:#0a3d62\">Nombre Apellido</strong><br><span style=\"color:#555\">Ejecutivo Comercial — ACCES GROUP</span><br><a href=\"mailto:correo@accesgroup.com\" style=\"color:#0a3d62\">correo@accesgroup.com</a> | +52 55 0000 0000</td></tr></table>';\nconst resp = $json;\nlet text = '';\ntry { text = resp.content[0].text; } catch(e) { text = resp.body ? resp.body.content[0].text : '{}'; }\ntext = text.replace(/^```json/i,'').replace(/```$/,'').trim();\nconst data = JSON.parse(text);\nconst lead = $('Prep clasificación').item.json;\ndata.cuerpo_final = (data.cuerpo_html || '') + FIRMA;\n// Calcular horario de reunion desde la 1a opcion propuesta\nconst pr = data.propuesta_reunion || {};\nconst opt = (pr.opciones && pr.opciones[0]) ? pr.opciones[0] : null;\nconst dur = pr.duracion_min || 30;\ndata.reunion_titulo = pr.titulo || ('ACCES GROUP <> ' + (lead.Empresa||''));\nif (opt) {\n  data.reunion_inicio = opt;\n  const d = new Date(opt);\n  data.reunion_fin = new Date(d.getTime() + dur*60000).toISOString().slice(0,19);\n}\nreturn [{ json: { ...lead, ...data } }];"
+      },
+      "id": "parse",
+      "name": "Parsear clasificación",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.decision_agenda }}",
+              "rightValue": "={{ true }}",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ]
+        }
+      },
+      "id": "ifAgenda",
+      "name": "¿Agendar reunión?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1640, 220]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "calendar": { "__rl": true, "value": "primary", "mode": "id" },
+        "start": "={{ $json.reunion_inicio }}",
+        "end": "={{ $json.reunion_fin }}",
+        "additionalFields": {
+          "summary": "={{ $json.reunion_titulo }}",
+          "attendeesUi": { "values": [ { "email": "={{ $json.Correo }}" } ] },
+          "description": "={{ 'Reunión exploratoria ACCES GROUP. Contacto: ' + $json.Contacto }}"
+        }
+      },
+      "id": "gcal",
+      "name": "Calendar: crear evento",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [1860, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Captura el Event_Id REAL devuelto por Calendar (nunca inventar IDs)\nconst d = $('Parsear clasificación').item.json;\nd.Event_Id = $json.id || '';\nreturn [{ json: d }];"
+      },
+      "id": "capId",
+      "name": "Capturar Event_Id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2080, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $json;\nif (!d.Event_Id) d.Event_Id = '';\nreturn [{ json: d }];"
+      },
+      "id": "noId",
+      "name": "Sin evento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1860, 340]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "={{ $json.asunto_respuesta }}",
+        "bodyContent": "={{ $json.cuerpo_final }}",
+        "additionalFields": {
+          "bodyContentType": "html",
+          "toRecipients": "={{ $json.Correo }}"
+        }
+      },
+      "id": "draft",
+      "name": "Outlook: borrador respuesta",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [2300, 220]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": { "__rl": true, "value": "REEMPLAZA_SHEET_ID", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Leads", "mode": "name" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": ["ID_Lead"],
+          "value": {
+            "ID_Lead": "={{ $json.ID_Lead }}",
+            "Estado": "={{ $json.nuevo_estado }}",
+            "Etapa_Pipeline": "={{ $json.nueva_etapa }}",
+            "Score_ICP": "={{ $json.nuevo_score }}",
+            "Event_Id": "={{ $json.Event_Id }}",
+            "Thread_Id": "={{ $json.conversationId }}",
+            "Ultimo_Contacto": "={{ $json.hoy }}",
+            "Fecha_Siguiente_Paso": "={{ $json.fecha_siguiente_paso }}",
+            "Notas": "={{ $json.intencion + ' | ' + $json.razon }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "upd",
+      "name": "Actualizar lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2520, 220]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "update",
+        "messageId": "={{ $json.msg_id }}",
+        "updateFields": { "isRead": true }
+      },
+      "id": "markread",
+      "name": "Outlook: marcar leído",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [2740, 220]
+    }
+  ],
+  "connections": {
+    "Cada 10 min": { "main": [[{ "node": "Outlook: no leídos", "type": "main", "index": 0 }]] },
+    "Outlook: no leídos": { "main": [[{ "node": "Buscar lead por correo", "type": "main", "index": 0 }]] },
+    "Buscar lead por correo": { "main": [[{ "node": "Prep clasificación", "type": "main", "index": 0 }]] },
+    "Prep clasificación": { "main": [[{ "node": "Claude: Clasificar respuesta", "type": "main", "index": 0 }]] },
+    "Claude: Clasificar respuesta": { "main": [[{ "node": "Parsear clasificación", "type": "main", "index": 0 }]] },
+    "Parsear clasificación": { "main": [[{ "node": "¿Agendar reunión?", "type": "main", "index": 0 }]] },
+    "¿Agendar reunión?": { "main": [[{ "node": "Calendar: crear evento", "type": "main", "index": 0 }], [{ "node": "Sin evento", "type": "main", "index": 0 }]] },
+    "Calendar: crear evento": { "main": [[{ "node": "Capturar Event_Id", "type": "main", "index": 0 }]] },
+    "Capturar Event_Id": { "main": [[{ "node": "Outlook: borrador respuesta", "type": "main", "index": 0 }]] },
+    "Sin evento": { "main": [[{ "node": "Outlook: borrador respuesta", "type": "main", "index": 0 }]] },
+    "Outlook: borrador respuesta": { "main": [[{ "node": "Actualizar lead", "type": "main", "index": 0 }]] },
+    "Actualizar lead": { "main": [[{ "node": "Outlook: marcar leído", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

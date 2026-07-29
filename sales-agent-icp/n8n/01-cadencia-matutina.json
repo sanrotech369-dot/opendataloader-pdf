@@ -1,0 +1,235 @@
+{
+  "name": "ICP · 01 Cadencia matutina (9:00-10:30)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ICP · Cadencia matutina\nGenera 1 BORRADOR de Outlook por minuto de 9:00 a 10:30 (L-V).\nNo envía: tú revisas y das clic en enviar.\n\nAntes de activar:\n1) Reemplaza REEMPLAZA_SHEET_ID por el ID de tu Google Sheet.\n2) Asigna credenciales: Google Sheets OAuth, Microsoft Outlook OAuth, y Header Auth (x-api-key de Anthropic) en el nodo Claude.\n3) Edita la constante FIRMA en el nodo 'Parsear Claude' o léela de la pestaña Config.\n4) Para el PILOTO deja solo 5-10 filas en 'Leads' con Estado=pendiente.",
+        "height": 320,
+        "width": 420
+      },
+      "id": "note1",
+      "name": "Guía",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-140, -40]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "* 9-10 * * 1-5" }
+          ]
+        }
+      },
+      "id": "trigger",
+      "name": "Cada minuto 9-10 L-V",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [340, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Corta la cadencia después de las 10:30 (el cron llega hasta 10:59)\nconst now = $now;\nif (now.hour === 10 && now.minute > 30) { return []; }\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "gate",
+      "name": "Tope 10:30",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [560, 200]
+    },
+    {
+      "parameters": {
+        "documentId": { "__rl": true, "value": "REEMPLAZA_SHEET_ID", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Leads", "mode": "name" },
+        "filtersUI": {
+          "values": [
+            { "lookupColumn": "Estado", "lookupValue": "pendiente" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "readlead",
+      "name": "Leer leads pendientes",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [780, 200]
+    },
+    {
+      "parameters": { "maxItems": 1 },
+      "id": "limit1",
+      "name": "Solo 1 por minuto",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict", "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.Correo }}",
+              "rightValue": "@",
+              "operator": { "type": "string", "operation": "contains" }
+            }
+          ]
+        }
+      },
+      "id": "hasEmail",
+      "name": "¿Correo válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1220, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Arma el system prompt (calificar+redactar) y el mensaje de usuario con los datos del lead\nconst lead = $json;\nconst hoy = $now.toFormat('yyyy-LL-dd');\nconst system = [\n'<identidad>Eres el Agente de Seguimiento Comercial B2B de ACCES GROUP. Venta consultiva (ciberseguridad, SOC 24/7, GRC, cumplimiento, nube, continuidad, PMO, servicios administrados). Partner estrategico, no proveedor de productos. No presionas, no hablas de precio, no inventas datos.</identidad>',\n'<objetivo>Calificar un lead ICP y redactar el PRIMER correo de contacto, personalizado con la investigacion de sector provista. Abrir una conversacion breve de bajo riesgo. NO vender en el primer correo.</objetivo>',\n'<calificacion>Score_ICP 0-100 = ICP_Fit(0-30)+Intent(0-30)+Viabilidad(0-30)+Engagement(0-10). Umbrales: 0-29 descartar, 30-49 nutrir, 50-64 MQL, 65-74 SAL, 75-100 SQL. Deriva un Micro_ICP.</calificacion>',\n'<reglas>Espanol profesional. Estructura: saludo -> hipotesis relevante del sector -> motivo -> reduccion de riesgo -> 1 solo CTA (reunion 20-30 min con 2 fechas) -> cierre sin presion. Max ~130 palabras. Cuerpo en HTML simple (<p>,<br>). Personaliza SIEMPRE con investigacion_sector, etiquetando hipotesis como hipotesis. NO firmes (la firma se agrega aparte). NO afirmes capacidades/casos no provistos. NO uses miedo ni urgencia falsa. Si Score<30 o correo invalido: decision distinta a contactar.</reglas>',\n'<salida>Responde SOLO este JSON sin ``` : {\"score_icp\":<0-100>,\"micro_icp\":\"\",\"decision\":\"contactar|nutrir|descartar\",\"etapa_pipeline\":\"Analisis de Requerimiento|Nutricion|Descartado\",\"asunto\":\"\",\"cuerpo_html\":\"\",\"razon\":\"\",\"fecha_siguiente_paso\":\"YYYY-MM-DD\"}</salida>'\n].join('\\n');\nconst user = `Fecha de hoy: ${hoy}\\nEmpresa: ${lead.Empresa}\\nSector: ${lead.Sector}\\nContacto: ${lead.Contacto} (${lead.Cargo})\\nCorreo: ${lead.Correo}\\nCiudad: ${lead.Ciudad || ''}\\nInvestigacion de sector/empresa: ${lead.Investigacion_Sector || ''}\\n\\nCalifica y redacta el primer contacto. Devuelve solo el JSON.`;\nreturn [{ json: { ...lead, system, user, hoy } }];"
+      },
+      "id": "prep",
+      "name": "Prep Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 140]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 1500, system: $json.system, messages: [ { role: 'user', content: $json.user } ] }) }}",
+        "options": {}
+      },
+      "id": "claude",
+      "name": "Claude: Calificar + Redactar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1660, 140]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Firma corporativa: EDITA aqui o lee de la pestana Config\nconst FIRMA = '<br><br><table cellpadding=\"0\" cellspacing=\"0\" style=\"font-family:Arial,sans-serif;font-size:13px;color:#333\"><tr><td style=\"padding-top:12px;border-top:2px solid #0a3d62\"><strong style=\"color:#0a3d62\">Nombre Apellido</strong><br><span style=\"color:#555\">Ejecutivo Comercial — ACCES GROUP</span><br><a href=\"mailto:correo@accesgroup.com\" style=\"color:#0a3d62\">correo@accesgroup.com</a> | +52 55 0000 0000<br><a href=\"https://www.accesgroup.com\" style=\"color:#0a3d62\">www.accesgroup.com</a></td></tr></table>';\nconst resp = $json;\nlet text = '';\ntry { text = resp.content[0].text; } catch (e) { text = resp.body ? resp.body.content[0].text : '{}'; }\ntext = text.replace(/^```json/i,'').replace(/```$/,'').trim();\nconst data = JSON.parse(text);\nconst lead = $('Prep Claude').item.json;\ndata.cuerpo_final = (data.cuerpo_html || '') + FIRMA;\nreturn [{ json: { ...lead, ...data } }];"
+      },
+      "id": "parse",
+      "name": "Parsear Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1880, 140]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict", "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.decision }}",
+              "rightValue": "contactar",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "ifContact",
+      "name": "¿Decisión = contactar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2100, 140]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "={{ $json.asunto }}",
+        "bodyContent": "={{ $json.cuerpo_final }}",
+        "additionalFields": {
+          "bodyContentType": "html",
+          "toRecipients": "={{ $json.Correo }}"
+        }
+      },
+      "id": "outlook",
+      "name": "Outlook: crear borrador",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [2320, 40]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": { "__rl": true, "value": "REEMPLAZA_SHEET_ID", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Leads", "mode": "name" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": ["ID_Lead"],
+          "value": {
+            "ID_Lead": "={{ $json.ID_Lead }}",
+            "Estado": "borrador_creado",
+            "Score_ICP": "={{ $json.score_icp }}",
+            "Micro_ICP": "={{ $json.micro_icp }}",
+            "Etapa_Pipeline": "={{ $json.etapa_pipeline }}",
+            "Ultimo_Contacto": "={{ $json.hoy }}",
+            "Fecha_Siguiente_Paso": "={{ $json.fecha_siguiente_paso }}",
+            "Asunto": "={{ $json.asunto }}",
+            "Num_Toques": "={{ (Number($json.Num_Toques)||0) + 1 }}",
+            "Notas": "={{ $json.razon }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "updContact",
+      "name": "Marcar borrador_creado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2540, 40]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": { "__rl": true, "value": "REEMPLAZA_SHEET_ID", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Leads", "mode": "name" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": ["ID_Lead"],
+          "value": {
+            "ID_Lead": "={{ $json.ID_Lead }}",
+            "Estado": "={{ $json.decision === 'descartar' ? 'descartado' : 'nutrir' }}",
+            "Score_ICP": "={{ $json.score_icp }}",
+            "Micro_ICP": "={{ $json.micro_icp }}",
+            "Etapa_Pipeline": "={{ $json.etapa_pipeline }}",
+            "Ultimo_Contacto": "={{ $json.hoy }}",
+            "Notas": "={{ $json.razon }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "updNurture",
+      "name": "Marcar nutrir/descartar",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2320, 260]
+    }
+  ],
+  "connections": {
+    "Cada minuto 9-10 L-V": { "main": [[{ "node": "Tope 10:30", "type": "main", "index": 0 }]] },
+    "Tope 10:30": { "main": [[{ "node": "Leer leads pendientes", "type": "main", "index": 0 }]] },
+    "Leer leads pendientes": { "main": [[{ "node": "Solo 1 por minuto", "type": "main", "index": 0 }]] },
+    "Solo 1 por minuto": { "main": [[{ "node": "¿Correo válido?", "type": "main", "index": 0 }]] },
+    "¿Correo válido?": { "main": [[{ "node": "Prep Claude", "type": "main", "index": 0 }], []] },
+    "Prep Claude": { "main": [[{ "node": "Claude: Calificar + Redactar", "type": "main", "index": 0 }]] },
+    "Claude: Calificar + Redactar": { "main": [[{ "node": "Parsear Claude", "type": "main", "index": 0 }]] },
+    "Parsear Claude": { "main": [[{ "node": "¿Decisión = contactar?", "type": "main", "index": 0 }]] },
+    "¿Decisión = contactar?": { "main": [[{ "node": "Outlook: crear borrador", "type": "main", "index": 0 }], [{ "node": "Marcar nutrir/descartar", "type": "main", "index": 0 }]] },
+    "Outlook: crear borrador": { "main": [[{ "node": "Marcar borrador_creado", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
