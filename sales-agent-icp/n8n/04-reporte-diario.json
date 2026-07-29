@@ -1,0 +1,121 @@
+{
+  "name": "ICP · 04 Reporte diario 360",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ICP · Reporte diario 360\nCada día 18:00 L-V lee el CRM (Leads + Actividad), calcula el embudo y las alertas, y Claude redacta un reporte ejecutivo en HTML que llega como BORRADOR a tu propio correo.\n\nReemplaza REEMPLAZA_SHEET_ID y REEMPLAZA_TU_CORREO.\nCredenciales: Google Sheets OAuth, Outlook OAuth, Header Auth (x-api-key Anthropic).",
+        "height": 260,
+        "width": 420
+      },
+      "id": "note1",
+      "name": "Guía",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-160, -40]
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [ { "field": "cronExpression", "expression": "0 18 * * 1-5" } ] }
+      },
+      "id": "trigger",
+      "name": "Cada día 18:00 L-V",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [320, 220]
+    },
+    {
+      "parameters": {
+        "documentId": { "__rl": true, "value": "REEMPLAZA_SHEET_ID", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Leads", "mode": "name" },
+        "options": {}
+      },
+      "id": "readLeads",
+      "name": "Leer Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [540, 220]
+    },
+    {
+      "parameters": {
+        "documentId": { "__rl": true, "value": "REEMPLAZA_SHEET_ID", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Actividad", "mode": "name" },
+        "options": {}
+      },
+      "id": "readAct",
+      "name": "Leer Actividad",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [760, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calcula metricas del embudo y alertas a partir del CRM\nconst hoy = $now.toFormat('yyyy-LL-dd');\nconst leads = $('Leer Leads').all().map(i => i.json).filter(l => l && l.ID_Lead);\nconst act = $('Leer Actividad').all().map(i => i.json).filter(a => a && a.Timestamp);\nconst norm = s => String(s||'').trim();\nconst dstr = s => String(s||'').slice(0,10);\nconst byEstado = {};\nlet sumScore = 0, nScore = 0;\nconst sinSiguientePaso = [];\nconst seguimientosVencidos = [];\nconst proximos = [];\nfor (const l of leads) {\n  const e = norm(l.Estado) || 'sin_estado';\n  byEstado[e] = (byEstado[e]||0) + 1;\n  const sc = Number(l.Score_ICP);\n  if (!isNaN(sc) && sc > 0) { sumScore += sc; nScore++; }\n  const activo = ['borrador_creado','respondio','en_pipeline','agendado','nutrir'].includes(e);\n  const fsp = dstr(l.Fecha_Siguiente_Paso);\n  if (activo && !fsp) sinSiguientePaso.push(l.Empresa + ' (' + l.Contacto + ')');\n  if (activo && fsp && fsp < hoy) seguimientosVencidos.push(l.Empresa + ' — venció ' + fsp);\n  if (activo && fsp && fsp >= hoy) proximos.push({ empresa: l.Empresa, fecha: fsp });\n}\nconst actHoy = act.filter(a => dstr(a.Timestamp) === hoy);\nconst accionesHoy = {};\nfor (const a of actHoy) { const k = norm(a.Accion)||'otro'; accionesHoy[k] = (accionesHoy[k]||0)+1; }\nproximos.sort((a,b)=> a.fecha.localeCompare(b.fecha));\nconst metrics = {\n  fecha: hoy,\n  total_leads: leads.length,\n  embudo_por_estado: byEstado,\n  score_promedio: nScore ? Math.round(sumScore/nScore) : 0,\n  actividad_hoy: accionesHoy,\n  reuniones_agendadas_total: byEstado['agendado'] || 0,\n  en_pipeline_total: byEstado['en_pipeline'] || 0,\n  alertas: {\n    sin_siguiente_paso: sinSiguientePaso.slice(0,15),\n    seguimientos_vencidos: seguimientosVencidos.slice(0,15)\n  },\n  proximos_seguimientos: proximos.slice(0,15)\n};\nconst system = [\n'<identidad>Eres analista comercial senior de ACCES GROUP. Generas un reporte ejecutivo diario claro y accionable.</identidad>',\n'<reglas>Usa SOLO los datos provistos, sin inventar. Espanol ejecutivo. Devuelve HTML simple (h2,h3,ul,table). Incluye: (1) Resumen del dia, (2) Embudo por etapa, (3) Alertas (sin siguiente paso, seguimientos vencidos), (4) Proximos seguimientos, (5) 3 recomendaciones de Siguiente Mejor Accion priorizadas por impacto. No incluyas firma.</reglas>',\n'<salida>Devuelve SOLO el HTML del reporte, sin ``` y sin texto fuera del HTML.</salida>'\n].join('\\n');\nconst user = 'Fecha: ' + hoy + '\\nDatos del CRM (JSON):\\n' + JSON.stringify(metrics, null, 2) + '\\n\\nGenera el reporte ejecutivo en HTML.';\nreturn [{ json: { hoy, metrics, system, user } }];"
+      },
+      "id": "metrics",
+      "name": "Calcular métricas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [980, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 2000, system: $json.system, messages: [ { role: 'user', content: $json.user } ] }) }}",
+        "options": {}
+      },
+      "id": "claude",
+      "name": "Claude: Redactar reporte",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json;\nlet text = '';\ntry { text = resp.content[0].text; } catch(e) { text = resp.body ? resp.body.content[0].text : ''; }\ntext = text.replace(/^```html/i,'').replace(/^```/,'').replace(/```$/,'').trim();\nconst hoy = $('Calcular métricas').item.json.hoy;\nreturn [{ json: { hoy, reporte_html: text } }];"
+      },
+      "id": "parse",
+      "name": "Preparar reporte",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 220]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "={{ 'Reporte diario ICP 360 — ' + $json.hoy }}",
+        "bodyContent": "={{ $json.reporte_html }}",
+        "additionalFields": {
+          "bodyContentType": "html",
+          "toRecipients": "REEMPLAZA_TU_CORREO"
+        }
+      },
+      "id": "draft",
+      "name": "Outlook: borrador reporte",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [1640, 220]
+    }
+  ],
+  "connections": {
+    "Cada día 18:00 L-V": { "main": [[{ "node": "Leer Leads", "type": "main", "index": 0 }]] },
+    "Leer Leads": { "main": [[{ "node": "Leer Actividad", "type": "main", "index": 0 }]] },
+    "Leer Actividad": { "main": [[{ "node": "Calcular métricas", "type": "main", "index": 0 }]] },
+    "Calcular métricas": { "main": [[{ "node": "Claude: Redactar reporte", "type": "main", "index": 0 }]] },
+    "Claude: Redactar reporte": { "main": [[{ "node": "Preparar reporte", "type": "main", "index": 0 }]] },
+    "Preparar reporte": { "main": [[{ "node": "Outlook: borrador reporte", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
