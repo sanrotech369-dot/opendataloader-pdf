@@ -23,3 +23,7 @@ Manual docs live in opendataloader.org repo. Reference docs (CLI options, JSON s
 - `./scripts/bench.sh --check-regression` — CI mode with threshold check
 - Benchmark code lives in [opendataloader-bench](https://github.com/opendataloader-project/opendataloader-bench)
 - Metrics: **NID** (reading order), **TEDS** (table structure), **MHS** (heading structure), **Table Detection F1**, **Speed**
+
+<!-- BEGIN token-efficient -->
+@.claude/rules/token-efficient.md
+<!-- END token-efficient -->
